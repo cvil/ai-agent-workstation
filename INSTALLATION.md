@@ -55,7 +55,7 @@ Protected directories (read-only for agent):
 
 ### Run Installation
 ```bash
-sudo bash setup-ai-agent-stack.sh
+sudo bash setup.sh
 ```
 
 The script is idempotent and can be safely re-run. It will:

@@ -1,14 +1,14 @@
-# Quick Start Guide - New Machine Setup
+# Quick Start Guide
 
-## For a Brand New Mac
+## Installation
 
-Run this single command to set up everything:
+Run this single command to set up everything (works for new or existing machines):
 
 ```bash
-sudo bash bootstrap-new-machine.sh
+sudo bash setup.sh
 ```
 
-This script will:
+This script is idempotent and will:
 1. Install Homebrew (if needed)
 2. Create users (cv and onyxv) if they don't exist
 3. Install all dependencies
@@ -18,15 +18,7 @@ This script will:
 7. Pull Ollama models
 8. Create tmux launcher
 
-## For an Existing Machine (Update/Repair)
-
-If you already have users and Homebrew:
-
-```bash
-sudo bash setup-ai-agent-stack.sh
-```
-
-## What Gets Installed
+## Verify Installation
 
 ### System Tools
 - Homebrew (package manager)
@@ -220,8 +212,7 @@ brew upgrade
 
 ## Support Files
 
-- `bootstrap-new-machine.sh` - Complete setup for new machines
-- `setup-ai-agent-stack.sh` - Update/repair existing installations
+- `setup.sh` - Idempotent setup for new or existing machines
 - `verify-installation.sh` - Check installation status
 - `INSTALLATION.md` - Detailed documentation
 - `QUICKSTART.md` - This file

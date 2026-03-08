@@ -4,14 +4,9 @@ Complete, secure, idempotent installation for OpenClaw and local AI agent develo
 
 ## Quick Start
 
-### Brand New Machine
+### New or Existing Machine (Idempotent)
 ```bash
-sudo bash bootstrap-new-machine.sh
-```
-
-### Existing Machine (Update/Repair)
-```bash
-sudo bash setup-ai-agent-stack.sh
+sudo bash setup.sh
 ```
 
 ### Verify Installation
@@ -34,8 +29,7 @@ A secure, production-ready AI development environment with:
 
 | File | Purpose |
 |------|---------|
-| `bootstrap-new-machine.sh` | Complete setup for new machines (includes user creation) |
-| `setup-ai-agent-stack.sh` | Update/repair existing installations |
+| `setup.sh` | Idempotent setup for new or existing machines |
 | `verify-installation.sh` | Check installation status and health |
 | `QUICKSTART.md` | Quick reference guide |
 | `INSTALLATION.md` | Detailed documentation and troubleshooting |
