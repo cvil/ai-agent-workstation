@@ -1,8 +1,7 @@
 #!/bin/bash
-
 ########################################
 # OpenClaw AI Agent Workstation Setup
-# Secure, idempotent bootstrap script
+# Idempotent setup for new or existing machines
 # macOS Apple Silicon (M-series)
 ########################################
 
@@ -49,6 +48,7 @@ brew_package_installed() {
 ########################################
 log "========================================="
 log "OpenClaw AI Agent Workstation Setup"
+log "Idempotent - safe to run multiple times"
 log "========================================="
 ########################################
 
@@ -59,24 +59,59 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 ########################################
-# 1. VERIFY HOMEBREW
+# STEP 0: INSTALL HOMEBREW (if needed)
 ########################################
 
-log "Step 1: Verifying Homebrew installation..."
+log "Step 0: Checking Homebrew installation..."
 
 if [[ ! -x "$BREW" ]]; then
-    log "ERROR: Homebrew not found at $BREW_PREFIX"
-    log "Please install Homebrew first: https://brew.sh"
-    exit 1
+    log "Homebrew not found. Installing..."
+    log "Please follow the prompts to install Homebrew"
+    
+    # Install Homebrew as the admin user
+    sudo -u "$ADMIN_USER" bash -c '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+    
+    # Verify installation
+    if [[ ! -x "$BREW" ]]; then
+        log "ERROR: Homebrew installation failed"
+        exit 1
+    fi
+    log "✓ Homebrew installed successfully"
+else
+    log "✓ Homebrew already installed"
 fi
 
 # Ensure Homebrew environment is available
 eval "$($BREW shellenv)"
 
-log "✓ Homebrew found at $BREW_PREFIX"
+########################################
+# STEP 1: CREATE USERS (if needed)
+########################################
+
+log "Step 1: Checking user accounts..."
+
+# Check admin user
+if ! check_user_exists "$ADMIN_USER"; then
+    log "Creating admin user: $ADMIN_USER"
+    log "You will be prompted to set a password"
+    sudo sysadminctl -addUser "$ADMIN_USER" -admin -password -
+    log "✓ Admin user created"
+else
+    log "✓ Admin user $ADMIN_USER exists"
+fi
+
+# Check agent user
+if ! check_user_exists "$AGENT_USER"; then
+    log "Creating agent user: $AGENT_USER (non-admin)"
+    log "You will be prompted to set a password"
+    sudo sysadminctl -addUser "$AGENT_USER" -password -
+    log "✓ Agent user created"
+else
+    log "✓ Agent user $AGENT_USER exists"
+fi
 
 ########################################
-# 2. CONFIGURE GROUP PERMISSIONS
+# STEP 2: CONFIGURE GROUP PERMISSIONS
 ########################################
 
 log "Step 2: Configuring group-based permissions..."
@@ -98,8 +133,6 @@ for user in "$ADMIN_USER" "$AGENT_USER"; do
         else
             log "✓ User $user already in $AGENT_GROUP group"
         fi
-    else
-        log "WARNING: User $user does not exist, skipping group assignment"
     fi
 done
 
@@ -111,7 +144,7 @@ if [[ -d "$BREW_PREFIX" ]]; then
 fi
 
 ########################################
-# 3. INSTALL SYSTEM DEPENDENCIES
+# STEP 3: INSTALL SYSTEM DEPENDENCIES
 ########################################
 
 log "Step 3: Installing system dependencies..."
@@ -134,7 +167,7 @@ for pkg in "${PACKAGES[@]}"; do
 done
 
 ########################################
-# 4. INSTALL RUST (before Python deps)
+# STEP 4: INSTALL RUST (before Python deps)
 ########################################
 
 log "Step 4: Installing Rust compiler..."
@@ -147,7 +180,7 @@ else
 fi
 
 ########################################
-# 5. INSTALL PYTHON 3.12
+# STEP 5: INSTALL PYTHON 3.12
 ########################################
 
 log "Step 5: Installing Python ${PYTHON_VERSION}..."
@@ -168,17 +201,10 @@ fi
 log "✓ Python version: $($PYTHON_BIN --version)"
 
 ########################################
-# 6. CREATE AGENT WORKSPACE
+# STEP 6: CREATE AGENT WORKSPACE
 ########################################
 
 log "Step 6: Creating agent workspace..."
-
-# Verify agent user exists
-if ! check_user_exists "$AGENT_USER"; then
-    log "ERROR: Agent user $AGENT_USER does not exist"
-    log "Please create the user first: sudo sysadminctl -addUser $AGENT_USER"
-    exit 1
-fi
 
 # Create only specific writable directories (NOT entire home)
 WRITABLE_DIRS=(
@@ -201,14 +227,23 @@ done
 log "✓ Agent workspace created at $WORKSPACE"
 
 ########################################
-# 7. CREATE VIRTUAL ENVIRONMENT
+# STEP 7: CREATE VIRTUAL ENVIRONMENT
 ########################################
 
 log "Step 7: Creating Python virtual environment..."
 
 if [[ -d "$VENV" ]] && [[ -x "$VENV/bin/python" ]]; then
-    log "✓ Virtual environment already exists"
-else
+    # Check if it's using the wrong Python version
+    VENV_PY_VERSION=$("$VENV/bin/python" --version 2>&1 | grep -o "3\.[0-9]*" || echo "unknown")
+    if [[ "$VENV_PY_VERSION" != "3.12" ]]; then
+        log "Removing old venv (Python $VENV_PY_VERSION)"
+        sudo -u "$AGENT_USER" rm -rf "$VENV"
+    else
+        log "✓ Virtual environment already exists with correct Python version"
+    fi
+fi
+
+if [[ ! -d "$VENV" ]]; then
     log "Creating virtual environment with Python ${PYTHON_VERSION}..."
     sudo -u "$AGENT_USER" -H bash -c "cd '$WORKSPACE' && '$PYTHON_BIN' -m venv '$VENV'"
 fi
@@ -216,7 +251,7 @@ fi
 log "✓ Virtual environment ready at $VENV"
 
 ########################################
-# 8. INSTALL PYTHON DEPENDENCIES
+# STEP 8: INSTALL PYTHON DEPENDENCIES
 ########################################
 
 log "Step 8: Installing Python dependencies..."
@@ -250,7 +285,7 @@ sudo -u "$AGENT_USER" -H bash -c "
 log "✓ Python dependencies installed"
 
 ########################################
-# 9. INSTALL PLAYWRIGHT BROWSERS
+# STEP 9: INSTALL PLAYWRIGHT BROWSERS
 ########################################
 
 log "Step 9: Installing Playwright browsers..."
@@ -266,10 +301,16 @@ sudo -u "$AGENT_USER" -H bash -c "
 log "✓ Playwright Chromium installed to $PLAYWRIGHT_PATH"
 
 ########################################
-# 10. CONFIGURE DOCKER VIA COLIMA
+# STEP 10: CONFIGURE DOCKER VIA COLIMA
 ########################################
 
 log "Step 10: Configuring Docker via Colima..."
+
+# Ensure Colima directory has correct ownership
+if [[ ! -d "/Users/$ADMIN_USER/.colima" ]]; then
+    sudo -u "$ADMIN_USER" mkdir -p "/Users/$ADMIN_USER/.colima"
+fi
+sudo chown -R "$ADMIN_USER:staff" "/Users/$ADMIN_USER/.colima"
 
 # Start Colima as admin user (NOT root)
 sudo -u "$ADMIN_USER" bash -c "
@@ -303,7 +344,7 @@ done
 log "✓ Docker configured via Colima"
 
 ########################################
-# 11. INSTALL OLLAMA
+# STEP 11: INSTALL OLLAMA
 ########################################
 
 log "Step 11: Configuring Ollama..."
@@ -320,7 +361,7 @@ fi
 log "✓ Ollama service configured"
 
 ########################################
-# 12. PULL DEFAULT MODELS
+# STEP 12: PULL DEFAULT MODELS
 ########################################
 
 log "Step 12: Pulling default Ollama models..."
@@ -348,7 +389,7 @@ done
 log "✓ Default models configured"
 
 ########################################
-# 13. INSTALL OPENCLAW
+# STEP 13: INSTALL OPENCLAW
 ########################################
 
 log "Step 13: Verifying OpenClaw installation..."
@@ -360,7 +401,7 @@ else
 fi
 
 ########################################
-# 14. GENERATE TMUX LAUNCH SCRIPT
+# STEP 14: GENERATE TMUX LAUNCH SCRIPT
 ########################################
 
 log "Step 14: Generating tmux launch script..."
