@@ -71,6 +71,20 @@ docker ps
 python --version
 ```
 
+## Getting Started with AI Agents
+
+Try the example agents in the `examples/` directory:
+
+```bash
+# Simple chat with Ollama
+python examples/basic_ollama_chat.py
+
+# Agent with tools (can run commands, list files, etc.)
+python examples/simple_ollama_agent.py
+```
+
+See `examples/README.md` for more details and usage instructions.
+
 ## Key Features
 
 ✅ **Idempotent** - Safe to run multiple times  
