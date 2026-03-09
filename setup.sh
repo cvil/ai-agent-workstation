@@ -85,29 +85,81 @@ fi
 eval "$($BREW shellenv)"
 
 ########################################
-# STEP 1: CREATE USERS (if needed)
+# STEP 1: CREATE FULL MACOS USERS (if needed)
 ########################################
 
-log "Step 1: Checking user accounts..."
+log "Step 1: Checking and creating macOS user accounts..."
 
 # Check admin user
 if ! check_user_exists "$ADMIN_USER"; then
     log "Creating admin user: $ADMIN_USER"
     log "You will be prompted to set a password"
     sudo sysadminctl -addUser "$ADMIN_USER" -admin -password -
+    
+    # Ensure home directory is properly created
+    if [[ ! -d "/Users/$ADMIN_USER" ]]; then
+        log "Creating home directory for $ADMIN_USER"
+        sudo createhomedir -c -u "$ADMIN_USER"
+    fi
+    
     log "✓ Admin user created"
 else
     log "✓ Admin user $ADMIN_USER exists"
 fi
 
-# Check agent user
+# Check agent user - create as full macOS user with proper home directory
 if ! check_user_exists "$AGENT_USER"; then
-    log "Creating agent user: $AGENT_USER (non-admin)"
+    log "Creating agent user: $AGENT_USER (standard user, non-admin)"
+    log "This creates a full macOS user account with complete isolation"
     log "You will be prompted to set a password"
+    
+    # Create the user with sysadminctl (creates proper macOS user)
     sudo sysadminctl -addUser "$AGENT_USER" -password -
-    log "✓ Agent user created"
+    
+    # Ensure home directory exists and is properly initialized
+    if [[ ! -d "$AGENT_HOME" ]]; then
+        log "Creating home directory for $AGENT_USER"
+        sudo createhomedir -c -u "$AGENT_USER"
+    fi
+    
+    # Set proper shell (bash or zsh)
+    log "Setting shell to zsh for $AGENT_USER"
+    sudo dscl . -create /Users/$AGENT_USER UserShell /bin/zsh
+    
+    # Ensure proper home directory ownership
+    sudo chown -R "$AGENT_USER:staff" "$AGENT_HOME"
+    
+    # Create basic shell configuration
+    log "Setting up shell environment for $AGENT_USER"
+    sudo -u "$AGENT_USER" bash -c "cat > '$AGENT_HOME/.zshrc' << 'ZSHRC'
+# Agent user shell configuration
+export PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:\$PATH\"
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+
+# Workspace shortcuts
+alias workspace='cd ~/agent-workspace && source venv/bin/activate'
+alias agents='~/start-agents.sh'
+
+# Welcome message
+if [[ -o interactive ]]; then
+    echo \"Welcome to the AI Agent Workstation\"
+    echo \"Type 'workspace' to activate the Python environment\"
+    echo \"Type 'agents' to start the tmux session\"
+fi
+ZSHRC
+"
+    
+    log "✓ Agent user created as full macOS user"
 else
     log "✓ Agent user $AGENT_USER exists"
+    
+    # Verify home directory exists
+    if [[ ! -d "$AGENT_HOME" ]]; then
+        log "Home directory missing, creating it..."
+        sudo createhomedir -c -u "$AGENT_USER"
+        sudo chown -R "$AGENT_USER:staff" "$AGENT_HOME"
+    fi
 fi
 
 ########################################
@@ -206,11 +258,21 @@ log "✓ Python version: $($PYTHON_BIN --version)"
 
 log "Step 6: Creating agent workspace..."
 
-# Create only specific writable directories (NOT entire home)
+# Ensure agent home directory exists and has proper permissions
+if [[ ! -d "$AGENT_HOME" ]]; then
+    log "Creating home directory for $AGENT_USER"
+    sudo createhomedir -c -u "$AGENT_USER"
+    sudo chown -R "$AGENT_USER:staff" "$AGENT_HOME"
+fi
+
+# Create workspace and essential directories
 WRITABLE_DIRS=(
     "$AGENT_HOME/.local"
     "$AGENT_HOME/.cache"
+    "$AGENT_HOME/.config"
     "$WORKSPACE"
+    "$WORKSPACE/projects"
+    "$WORKSPACE/logs"
 )
 
 for dir in "${WRITABLE_DIRS[@]}"; do
@@ -220,9 +282,17 @@ for dir in "${WRITABLE_DIRS[@]}"; do
     else
         log "✓ Directory exists: $dir"
     fi
-    # Ensure correct ownership (non-recursive for safety)
+    # Ensure correct ownership
     sudo chown "$AGENT_USER:staff" "$dir"
 done
+
+# Copy example files to workspace
+if [[ -d "examples" ]]; then
+    log "Copying example files to workspace..."
+    sudo cp -r examples "$WORKSPACE/"
+    sudo chown -R "$AGENT_USER:staff" "$WORKSPACE/examples"
+    log "✓ Examples copied to $WORKSPACE/examples"
+fi
 
 log "✓ Agent workspace created at $WORKSPACE"
 
@@ -434,10 +504,15 @@ tmux new-session -d -s "$SESSION" -n "main"
 tmux send-keys -t "$SESSION:main" "cd $WORKSPACE" C-m
 tmux send-keys -t "$SESSION:main" "source $VENV/bin/activate" C-m
 tmux send-keys -t "$SESSION:main" "clear" C-m
+tmux send-keys -t "$SESSION:main" "echo 'AI Agent Workspace Ready'" C-m
+tmux send-keys -t "$SESSION:main" "echo 'Try: python examples/basic_ollama_chat.py'" C-m
 
 # Create additional windows
 tmux new-window -t "$SESSION" -n "logs"
+tmux send-keys -t "$SESSION:logs" "cd $WORKSPACE/logs" C-m
+
 tmux new-window -t "$SESSION" -n "monitor"
+tmux send-keys -t "$SESSION:monitor" "cd $WORKSPACE" C-m
 
 # Select main window
 tmux select-window -t "$SESSION:main"
@@ -452,6 +527,92 @@ chown "$AGENT_USER:staff" "$TMUX_SCRIPT"
 log "✓ Tmux launch script created at $TMUX_SCRIPT"
 
 ########################################
+# STEP 15: CREATE WELCOME README
+########################################
+
+log "Step 15: Creating workspace README..."
+
+README_FILE="$WORKSPACE/README.md"
+
+cat > "$README_FILE" <<'README'
+# AI Agent Workspace
+
+Welcome to your AI agent development environment!
+
+## Quick Start
+
+### Activate Python Environment
+```bash
+cd ~/agent-workspace
+source venv/bin/activate
+```
+
+Or simply type: `workspace` (alias configured in your shell)
+
+### Try the Examples
+
+1. **Basic Chat with Ollama**
+   ```bash
+   python examples/basic_ollama_chat.py
+   ```
+
+2. **Agent with Tools**
+   ```bash
+   python examples/simple_ollama_agent.py
+   ```
+
+### Start Persistent Session
+```bash
+~/start-agents.sh
+```
+Or simply type: `agents`
+
+## Directory Structure
+
+```
+~/agent-workspace/
+├── venv/              # Python virtual environment
+├── examples/          # Example scripts
+├── projects/          # Your projects go here
+├── logs/              # Application logs
+└── README.md          # This file
+```
+
+## Installed Tools
+
+- Python 3.12 with AI libraries (langchain, crewai, etc.)
+- Ollama with llama3 and codellama models
+- Docker via Colima
+- Playwright for browser automation
+
+## Resources
+
+- Ollama: http://localhost:11434
+- Examples: ~/agent-workspace/examples/
+- Main repo: /Users/cv/workspace/ai-agent-workstation/
+
+## Tips
+
+- Use tmux for persistent sessions
+- All AI work should be done in this workspace
+- Check examples/README.md for detailed guides
+- Your user (onyxv) is isolated for security
+
+## Getting Help
+
+Run verification script:
+```bash
+# Switch to admin user first
+exit
+sudo bash /Users/cv/workspace/ai-agent-workstation/verify-installation.sh
+```
+README
+
+chown "$AGENT_USER:staff" "$README_FILE"
+
+log "✓ Workspace README created"
+
+########################################
 # COMPLETION
 ########################################
 
@@ -462,23 +623,34 @@ log "========================================="
 log ""
 log "SECURITY ARCHITECTURE:"
 log "  - Admin user ($ADMIN_USER): System services, Homebrew, Docker/Colima"
-log "  - Agent user ($AGENT_USER): OpenClaw and AI workloads (non-admin)"
+log "  - Agent user ($AGENT_USER): Full macOS user, isolated workspace (non-admin)"
 log "  - Group ($AGENT_GROUP): Shared Homebrew access"
-log "  - Writable paths: $WORKSPACE, ~/.local, ~/.cache only"
+log "  - Isolated home: $AGENT_HOME (complete macOS user isolation)"
+log "  - Workspace: $WORKSPACE"
 log "  - Container sandbox: Docker via Colima (non-root)"
 log ""
-log "TO START WORKING:"
+log "TO SWITCH TO AGENT USER:"
 log "  sudo -iu $AGENT_USER"
+log ""
+log "QUICK START (as $AGENT_USER):"
+log "  workspace              # Activate Python environment"
+log "  agents                 # Start tmux session"
+log "  python examples/basic_ollama_chat.py"
+log ""
+log "OR MANUALLY:"
 log "  cd ~/agent-workspace"
 log "  source venv/bin/activate"
-log ""
-log "TO START AGENTS IN TMUX:"
-log "  sudo -iu $AGENT_USER"
-log "  ~/start-agents.sh"
+log "  python examples/basic_ollama_chat.py"
 log ""
 log "VERIFY INSTALLATION:"
 log "  ollama list"
 log "  ollama run llama3"
 log "  docker ps"
 log "  python --version"
+log ""
+log "The agent user '$AGENT_USER' is a full macOS user with:"
+log "  - Complete home directory isolation"
+log "  - No admin privileges"
+log "  - Configured shell with helpful aliases"
+log "  - Ready-to-use AI development environment"
 log ""

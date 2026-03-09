@@ -38,11 +38,14 @@ A secure, production-ready AI development environment with:
 
 ### User Separation
 - **cv** (admin): System services, Homebrew, Docker/Colima
-- **onyxv** (agent): AI workloads, no admin privileges
+- **onyxv** (agent): Full macOS user, AI workloads, no admin privileges
 
 ### Principle of Least Privilege
-- Agent user can only write to: `~/agent-workspace`, `~/.local`, `~/.cache`
-- Protected directories: `~/Library`, `~/Documents`, `/opt/homebrew`
+- Agent user is a complete macOS user with isolated home directory
+- No sudo access for agent user
+- Standard macOS user permissions and isolation
+- Can log in via GUI or terminal
+- Protected directories: system files remain read-only
 - All untrusted code runs in Docker containers
 
 ### Group-Based Access
@@ -53,7 +56,14 @@ A secure, production-ready AI development environment with:
 
 Start working as agent user:
 ```bash
+# Switch to agent user (full macOS user)
 sudo -iu onyxv
+
+# Quick start with shell aliases
+workspace              # Activate Python environment
+agents                 # Start tmux session
+
+# Or manually
 cd ~/agent-workspace
 source venv/bin/activate
 ```
@@ -62,6 +72,7 @@ Start persistent tmux session:
 ```bash
 sudo -iu onyxv
 ~/start-agents.sh
+# or simply: agents
 ```
 
 Test installation:

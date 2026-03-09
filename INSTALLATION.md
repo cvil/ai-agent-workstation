@@ -8,8 +8,9 @@ This installation follows the principle of least privilege with a multi-layered 
 
 ### User Separation
 - **Admin user (cv)**: Manages system services, Homebrew, Docker/Colima
-- **Agent user (onyxv)**: Runs OpenClaw and AI workloads (non-admin, no sudo)
-- Clear separation prevents privilege escalation from AI agents
+- **Agent user (onyxv)**: Full macOS user account, runs AI workloads (non-admin, no sudo)
+- Complete user isolation with separate home directories at `/Users/cv` and `/Users/onyxv`
+- Agent user can log in via GUI or terminal as a standard macOS user
 
 ### Group-Based Access
 - **agenttools group**: Shared access to Homebrew packages
@@ -17,15 +18,14 @@ This installation follows the principle of least privilege with a multi-layered 
 - Homebrew directories have group write permissions
 
 ### Restricted Write Access
-Agent user can only write to:
+Agent user workspace structure:
 - `/Users/onyxv/agent-workspace` - AI workloads and projects
 - `/Users/onyxv/.local` - User-level configurations
 - `/Users/onyxv/.cache` - Temporary files and caches
+- `/Users/onyxv/.config` - Application configurations
 
-Protected directories (read-only for agent):
-- `~/Library` - macOS system files
-- `~/Documents`, `~/Desktop` - Personal files
-- `/opt/homebrew` - System packages (group read access only)
+The agent user has a complete macOS home directory with standard permissions.
+Protected system directories remain read-only (e.g., `/opt/homebrew` system files).
 
 ### Container Sandbox
 - All untrusted code execution runs in Docker containers
@@ -43,15 +43,10 @@ Protected directories (read-only for agent):
 
 ### Prerequisites
 1. macOS Sonoma or newer on Apple Silicon (M-series)
-2. Homebrew installed at `/opt/homebrew`
-3. Users created:
-   ```bash
-   # Create admin user (if not exists)
-   sudo sysadminctl -addUser cv -admin
-   
-   # Create agent user (non-admin)
-   sudo sysadminctl -addUser onyxv
-   ```
+2. Admin access to run the setup script
+3. The script will create users if they don't exist:
+   - Admin user (cv) - if not already present
+   - Agent user (onyxv) - created as full macOS user
 
 ### Run Installation
 ```bash
@@ -59,20 +54,21 @@ sudo bash setup.sh
 ```
 
 The script is idempotent and can be safely re-run. It will:
-1. Verify Homebrew installation
-2. Configure group-based permissions
-3. Install system dependencies (git, tmux, colima, docker, ollama)
-4. Install Rust compiler (required for tiktoken)
-5. Install Python 3.12
-6. Create agent workspace with restricted permissions
-7. Create Python virtual environment
-8. Install AI stack (langchain, langgraph, crewai, openclaw, etc.)
-9. Install Playwright Chromium browser
-10. Configure Docker via Colima
-11. Start Ollama service
-12. Pull default models (llama3, codellama)
-13. Verify OpenClaw installation
-14. Generate tmux launch script
+1. Install Homebrew (if needed)
+2. Create full macOS user accounts (if needed)
+3. Configure group-based permissions
+4. Install system dependencies (git, tmux, colima, docker, ollama)
+5. Install Rust compiler (required for tiktoken)
+6. Install Python 3.12
+7. Create agent workspace with proper home directory
+8. Create Python virtual environment
+9. Install AI stack (langchain, langgraph, crewai, etc.)
+10. Install Playwright Chromium browser
+11. Configure Docker via Colima
+12. Start Ollama service
+13. Pull default models (llama3, codellama)
+14. Copy example scripts to workspace
+15. Generate tmux launch script and workspace README
 
 ## Verification
 
@@ -94,7 +90,14 @@ This checks:
 
 ### Start Working as Agent User
 ```bash
+# Switch to the agent user (full macOS user)
 sudo -iu onyxv
+
+# Quick start with aliases
+workspace              # Activates Python venv
+agents                 # Starts tmux session
+
+# Or manually
 cd ~/agent-workspace
 source venv/bin/activate
 ```
