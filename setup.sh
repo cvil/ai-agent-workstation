@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+# Trap errors and provide helpful messages
+trap 'log "ERROR: Script failed at line $LINENO. Check the error above."' ERR
+
 ########################################
 # CONFIGURATION
 ########################################
@@ -25,12 +28,17 @@ VENV="$WORKSPACE/venv"
 PYTHON_VERSION="3.12"
 PYTHON_BIN="$BREW_PREFIX/opt/python@${PYTHON_VERSION}/bin/python${PYTHON_VERSION}"
 
+# Log file for troubleshooting
+LOG_FILE="/tmp/ai-agent-setup-$(date +%Y%m%d-%H%M%S).log"
+
 ########################################
 # HELPER FUNCTIONS
 ########################################
 
 log() {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
+    local msg="[$(date +'%Y-%m-%d %H:%M:%S')] $*"
+    echo "$msg"
+    echo "$msg" >> "$LOG_FILE"
 }
 
 check_user_exists() {
@@ -48,6 +56,10 @@ brew_package_installed() {
 ########################################
 log "========================================="
 log "OpenClaw AI Agent Workstation Setup"
+log "Idempotent - safe to run multiple times"
+log "========================================="
+log "Log file: $LOG_FILE"
+log "========================================="
 log "Idempotent - safe to run multiple times"
 log "========================================="
 ########################################
@@ -396,16 +408,56 @@ if [[ ! -d "/Users/$ADMIN_USER/.colima" ]]; then
 fi
 sudo chown -R "$ADMIN_USER:staff" "/Users/$ADMIN_USER/.colima"
 
-# Start Colima as admin user (NOT root)
-sudo -u "$ADMIN_USER" bash -c "
-    eval \"\$($BREW shellenv)\"
-    if colima status &>/dev/null; then
-        echo '✓ Colima already running'
+# Check Colima status and handle edge cases
+COLIMA_STATUS=$(sudo -u "$ADMIN_USER" bash -c "eval \"\$($BREW shellenv)\" && colima status 2>&1" || echo "not running")
+
+if echo "$COLIMA_STATUS" | grep -q "colima is running"; then
+    log "✓ Colima already running"
+elif echo "$COLIMA_STATUS" | grep -q "not running"; then
+    log "Starting Colima..."
+    
+    # Try to start Colima
+    if ! sudo -u "$ADMIN_USER" bash -c "
+        eval \"\$($BREW shellenv)\"
+        colima start --cpu 4 --memory 8 --disk 100 2>&1
+    "; then
+        log "WARNING: Colima failed to start, attempting cleanup..."
+        
+        # Try to delete and recreate
+        sudo -u "$ADMIN_USER" bash -c "
+            eval \"\$($BREW shellenv)\"
+            colima delete -f 2>&1 || true
+            sleep 2
+            colima start --cpu 4 --memory 8 --disk 100 2>&1
+        "
+        
+        if sudo -u "$ADMIN_USER" bash -c "eval \"\$($BREW shellenv)\" && colima status &>/dev/null"; then
+            log "✓ Colima started after cleanup"
+        else
+            log "ERROR: Failed to start Colima. Please run manually:"
+            log "  colima delete -f"
+            log "  colima start --cpu 4 --memory 8 --disk 100"
+            log "Continuing with rest of setup..."
+        fi
     else
-        echo 'Starting Colima...'
-        colima start --cpu 4 --memory 8 --disk 100
+        log "✓ Colima started successfully"
     fi
-"
+else
+    log "WARNING: Unexpected Colima status: $COLIMA_STATUS"
+    log "Attempting to start anyway..."
+    sudo -u "$ADMIN_USER" bash -c "
+        eval \"\$($BREW shellenv)\"
+        colima start --cpu 4 --memory 8 --disk 100 2>&1 || true
+    "
+fi
+
+# Verify Docker is accessible
+if sudo -u "$ADMIN_USER" docker ps &>/dev/null; then
+    log "✓ Docker is accessible"
+else
+    log "WARNING: Docker is not accessible. Colima may need manual intervention."
+    log "Try: colima restart"
+fi
 
 # Pull Docker images
 log "Pulling Docker images..."
@@ -421,7 +473,7 @@ for img in "${IMAGES[@]}"; do
         log "✓ Image $img already exists"
     else
         log "Pulling $img..."
-        sudo -u "$ADMIN_USER" docker pull "$img" || log "WARNING: Failed to pull $img"
+        sudo -u "$ADMIN_USER" docker pull "$img" 2>&1 || log "WARNING: Failed to pull $img"
     fi
 done
 
@@ -635,6 +687,8 @@ log "========================================="
 log "✓ Installation Complete!"
 log "========================================="
 log ""
+log "Log file saved to: $LOG_FILE"
+log ""
 log "SECURITY ARCHITECTURE:"
 log "  - Admin user ($ADMIN_USER): System services, Homebrew, Docker/Colima"
 log "  - Agent user ($AGENT_USER): Full macOS user, isolated workspace (non-admin)"
@@ -661,6 +715,13 @@ log "  ollama list"
 log "  ollama run llama3"
 log "  docker ps"
 log "  python --version"
+log ""
+log "TROUBLESHOOTING:"
+log "  If Colima issues persist:"
+log "    colima delete -f"
+log "    colima start --cpu 4 --memory 8 --disk 100"
+log ""
+log "  Check log file for details: $LOG_FILE"
 log ""
 log "The agent user '$AGENT_USER' is a full macOS user with:"
 log "  - Complete home directory isolation"

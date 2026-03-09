@@ -148,10 +148,15 @@ fi
 # Check Colima
 echo ""
 echo "Checking Colima..."
-if sudo -u "$ADMIN_USER" colima status &>/dev/null; then
+COLIMA_STATUS=$(sudo -u "$ADMIN_USER" bash -c "eval \"\$(/opt/homebrew/bin/brew shellenv)\" && colima status 2>&1" || echo "error")
+if echo "$COLIMA_STATUS" | grep -q "colima is running"; then
     pass "Colima is running"
+    COLIMA_VERSION=$(sudo -u "$ADMIN_USER" colima version 2>/dev/null | head -n1)
+    echo "  Version: $COLIMA_VERSION"
+elif echo "$COLIMA_STATUS" | grep -q "not running"; then
+    warn "Colima is not running (run: colima start)"
 else
-    warn "Colima is not running"
+    warn "Colima status unclear: $COLIMA_STATUS"
 fi
 
 # Check Docker
