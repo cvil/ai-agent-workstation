@@ -129,9 +129,28 @@ if ! check_user_exists "$AGENT_USER"; then
     # Ensure proper home directory ownership
     sudo chown -R "$AGENT_USER:staff" "$AGENT_HOME"
     
-    # Create basic shell configuration
-    log "Setting up shell environment for $AGENT_USER"
-    sudo -u "$AGENT_USER" bash -c "cat > '$AGENT_HOME/.zshrc' << 'ZSHRC'
+    log "✓ Agent user created as full macOS user"
+else
+    log "✓ Agent user $AGENT_USER exists"
+    
+    # Verify home directory exists
+    if [[ ! -d "$AGENT_HOME" ]]; then
+        log "Home directory missing, creating it..."
+        sudo createhomedir -c -u "$AGENT_USER"
+        sudo chown -R "$AGENT_USER:staff" "$AGENT_HOME"
+    fi
+    
+    # Ensure shell is set to zsh
+    CURRENT_SHELL=$(dscl . -read /Users/$AGENT_USER UserShell 2>/dev/null | awk '{print $2}')
+    if [[ "$CURRENT_SHELL" != "/bin/zsh" ]]; then
+        log "Setting shell to zsh for $AGENT_USER"
+        sudo dscl . -create /Users/$AGENT_USER UserShell /bin/zsh
+    fi
+fi
+
+# Setup or update shell configuration (for both new and existing users)
+log "Configuring shell environment for $AGENT_USER"
+sudo -u "$AGENT_USER" bash -c "cat > '$AGENT_HOME/.zshrc' << 'ZSHRC'
 # Agent user shell configuration
 export PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:\$PATH\"
 export LANG=en_US.UTF-8
@@ -149,18 +168,8 @@ if [[ -o interactive ]]; then
 fi
 ZSHRC
 "
-    
-    log "✓ Agent user created as full macOS user"
-else
-    log "✓ Agent user $AGENT_USER exists"
-    
-    # Verify home directory exists
-    if [[ ! -d "$AGENT_HOME" ]]; then
-        log "Home directory missing, creating it..."
-        sudo createhomedir -c -u "$AGENT_USER"
-        sudo chown -R "$AGENT_USER:staff" "$AGENT_HOME"
-    fi
-fi
+
+log "✓ Shell configuration updated"
 
 ########################################
 # STEP 2: CONFIGURE GROUP PERMISSIONS
@@ -286,12 +295,17 @@ for dir in "${WRITABLE_DIRS[@]}"; do
     sudo chown "$AGENT_USER:staff" "$dir"
 done
 
-# Copy example files to workspace
+# Copy example files to workspace (only if source exists and is newer or target doesn't exist)
 if [[ -d "examples" ]]; then
-    log "Copying example files to workspace..."
-    sudo cp -r examples "$WORKSPACE/"
-    sudo chown -R "$AGENT_USER:staff" "$WORKSPACE/examples"
-    log "✓ Examples copied to $WORKSPACE/examples"
+    if [[ ! -d "$WORKSPACE/examples" ]]; then
+        log "Copying example files to workspace..."
+        sudo cp -r examples "$WORKSPACE/"
+        sudo chown -R "$AGENT_USER:staff" "$WORKSPACE/examples"
+        log "✓ Examples copied to $WORKSPACE/examples"
+    else
+        log "✓ Examples directory already exists at $WORKSPACE/examples"
+        log "   (Run 'sudo cp -r examples $WORKSPACE/' manually to update)"
+    fi
 fi
 
 log "✓ Agent workspace created at $WORKSPACE"
